@@ -1,0 +1,69 @@
+# Per-branch staging kustomization — rendered by the deploy-staging workflow.
+#
+# Every file in generator/ ending in .tmpl is passed through envsubst and
+# written to the branch directory without the suffix; anything else is copied
+# as-is. Available placeholders:
+#
+#   ${BRANCH_SLUG}  sanitized branch name, e.g. feat-new-header
+#   ${COMMIT_SHA}   full commit sha of the build
+#   ${STAGING_URL}  https://<slug>.<staging-domain-base>
+#   ${IMAGE}        ghcr.io/<owner>/<repo> (no tag)
+#   ${APP_NAME}     the app-name input
+#
+# The rest of the overlay (ingress, certificate, middlewares, secrets,
+# kustomizeconfig, patches/) is copied next to this file with the staging host
+# rewritten to <slug>.staging.example.com, so the resource names below match.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mysite-staging
+
+# Branch-scoped prefix — this is what keeps N branches from colliding in one
+# namespace. Keep the trailing dash.
+namePrefix: ${BRANCH_SLUG}-mysite-
+
+# --- Mode A: pull the template straight from GitHub (public template repo) ---
+resources:
+  - github.com/NickMous/astro-k8s-deployment-kit//base?ref=v1.0.0
+  - ingress.yaml
+  - certificate.yaml
+  - middlewares.yaml
+  - secrets.example.yaml
+
+# --- Mode B: template is private, so the workflow syncs a copy into the fleet
+# --- repo (set the workflow's `sync-base: true` and swap the block above for):
+# resources:
+#   - ../../base
+#   - ingress.yaml
+#   - certificate.yaml
+#   - middlewares.yaml
+#   - secrets.example.yaml
+
+configurations:
+  - kustomizeconfig.yaml
+
+images:
+  - name: app-image
+    newName: ${IMAGE}
+    newTag: sha-${COMMIT_SHA}
+
+# includeSelectors: true is load-bearing here. Every branch ships a Deployment
+# and Service carrying the same app.kubernetes.io labels into the same
+# namespace; without `branch` in the selectors, one branch's Service would fan
+# out over every branch's pods.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: ${APP_NAME}
+      app.kubernetes.io/instance: staging-${BRANCH_SLUG}
+      branch: ${BRANCH_SLUG}
+    includeSelectors: true
+
+# SSR only — a static build already has its URL baked in at build time by the
+# SITE_URL build arg.
+# configMapGenerator:
+#   - name: app-config
+#     behavior: merge
+#     literals:
+#       - SITE_URL=${STAGING_URL}
+#       - SENTRY_RELEASE=sha-${COMMIT_SHA}

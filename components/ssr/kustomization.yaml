@@ -1,0 +1,41 @@
+# Opt-in: run an SSR Astro build (@astrojs/node, `output: 'server'`) instead of
+# serving a static dist/ through nginx.
+#
+#   components:
+#     - github.com/NickMous/astro-k8s-deployment-kit//components/ssr?ref=v1.0.0
+#
+# The image built by the project is then a Node image, not an nginx one — see
+# examples/docker/Dockerfile.ssr. Everything else (Service, ingress, probes
+# target, port 8080) stays identical, so overlays don't change shape.
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# The overlay must supply an `app-config` ConfigMap containing at least:
+#
+#   HOST=0.0.0.0      # Astro's node adapter binds localhost otherwise, and
+#                     # the kubelet's probes never reach it
+#   PORT=8080         # keeps Service, probes and ingress identical to static
+#
+# It is not generated here on purpose: `behavior: merge` only works against
+# generators declared in a resource base, never one declared in a component,
+# so a component-owned app-config could not be extended by the overlay.
+# Generating it in the overlay also means the name hash changes when config
+# changes, which rolls the pods.
+patches:
+  - path: deployment-patch.yaml
+    target:
+      kind: Deployment
+      name: app
+
+  # The base always generates the nginx server block; an SSR pod never mounts
+  # it. Drop it rather than leave a stale copy in the namespace.
+  - target:
+      kind: ConfigMap
+      name: app-nginx-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: app-nginx-config
+      $patch: delete

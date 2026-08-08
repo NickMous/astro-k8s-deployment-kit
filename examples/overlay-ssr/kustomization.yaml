@@ -1,0 +1,52 @@
+# Example: the same setup for an SSR Astro build (@astrojs/node standalone).
+#
+# The only differences from overlay-production are the ssr component and the
+# app-secret it feeds the process. Ingress, certificate, middlewares and
+# kustomizeconfig are identical to overlay-production — copy them in when you
+# use this as a starting point.
+#
+#   kubectl kustomize examples/overlay-ssr
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mysite-production
+namePrefix: mysite-
+
+resources:
+  - ../../base
+  - secrets.example.yaml
+
+components:
+  # Swaps the nginx pod for a Node one: uid 1000, envFrom app-config +
+  # app-secret, TCP probes, nginx volumes removed.
+  - ../../components/ssr
+  - ../../components/hpa
+
+# Required by the ssr component: it wires this in with envFrom, and the pod
+# won't start without it. HOST/PORT are what make the Node server reachable on
+# the same port the static nginx pod uses, so nothing else in the overlay
+# changes. Generated, so editing a value rolls the pods.
+configMapGenerator:
+  - name: app-config
+    literals:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - NODE_ENV=production
+      - TZ=Europe/Amsterdam
+      - SITE_URL=https://example.com
+    options:
+      labels:
+        app.kubernetes.io/name: app
+        app.kubernetes.io/component: web
+
+images:
+  - name: app-image
+    newName: ghcr.io/nickmous/mysite
+    newTag: v1.0.0
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: mysite
+      app.kubernetes.io/instance: production
+    includeSelectors: false

@@ -1,0 +1,17 @@
+# Copy to the root of your project as `.dockerignore`.
+
+# Version control / editor tooling
+.git
+.github
+.idea
+.vscode
+.DS_Store
+
+# Rebuilt inside the image
+node_modules
+dist
+.astro
+
+# Not part of the build context
+k8s
+*.md

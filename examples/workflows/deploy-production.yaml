@@ -1,0 +1,40 @@
+# Drop this into your project's .github/workflows/.
+# Edit the `with:` values to match your app. The deploy logic itself lives in
+# astro-k8s-deployment-kit — bump the @ref to upgrade it.
+
+name: Deploy to Production
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to build (e.g. v1.0.0)'
+        required: true
+        default: 'v0.0.0-manual'
+
+jobs:
+  deploy:
+    # A reusable workflow can only RESTRICT the caller's permissions, never
+    # expand them. Declare what it needs here, or the run fails at startup
+    # with no log output.
+    permissions:
+      contents: read
+      packages: write
+    uses: NickMous/astro-k8s-deployment-kit/.github/workflows/deploy-production.yaml@v1.0.0
+    with:
+      # `inputs` only exists for workflow_dispatch, so read the release case
+      # through github.event.inputs — that context is always defined.
+      version: ${{ github.event.inputs.version || github.ref_name }}
+      # Also passed to the build as SITE_URL, which Astro bakes into canonical
+      # links, the sitemap and RSS.
+      prod-url: https://example.com
+      # Extra build args, one per line — e.g. PUBLIC_* values Astro inlines.
+      # build-args: |
+      #   PUBLIC_PLAUSIBLE_DOMAIN=example.com
+      # Sentry release tracking — leave blank to skip.
+      sentry-org: ''
+      sentry-project: ''
+      sentry-url: ''
+    secrets: inherit

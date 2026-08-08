@@ -1,0 +1,28 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-to-https
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: staging-basic-auth
+spec:
+  basicAuth:
+    secret: app-staging-basic-auth
+---
+# Astro staging builds are real, crawlable HTML on a public host. Basic auth
+# already blocks bots, but the header costs nothing and survives someone
+# temporarily disabling auth to share a preview.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: staging-noindex
+spec:
+  headers:
+    customResponseHeaders:
+      X-Robots-Tag: "noindex, nofollow"

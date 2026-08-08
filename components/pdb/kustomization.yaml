@@ -1,0 +1,17 @@
+# Opt-in: keep at least one pod serving while nodes are drained.
+#
+#   components:
+#     - github.com/NickMous/astro-k8s-deployment-kit//components/pdb?ref=v1.0.0
+#
+# Production overlays only. A PodDisruptionBudget selector is NOT rewritten by
+# kustomize's label transformer, so in a shared namespace (per-branch staging)
+# it would match every branch's pods at once.
+#
+# Pair with replicas >= 2 (or the hpa component). With a single replica the
+# budget blocks node drains instead of protecting anything.
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - pdb.yaml

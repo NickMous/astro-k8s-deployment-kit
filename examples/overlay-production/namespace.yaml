@@ -1,0 +1,8 @@
+# Drop this file (and its resources entry) if fleet-infra already creates the
+# namespace. Note that `namespace:` in kustomization.yaml sets the namespace of
+# the resources, and namePrefix does not apply to a Namespace's own name — so
+# this name must match `namespace:` exactly.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mysite-production

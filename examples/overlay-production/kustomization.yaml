@@ -1,0 +1,54 @@
+# Example: how a project consumes this template for production.
+#
+# In a real project, replace the local `../../` paths with versioned git refs:
+#
+#   resources:
+#     - github.com/NickMous/astro-k8s-deployment-kit//base?ref=v1.0.0
+#   components:
+#     - github.com/NickMous/astro-k8s-deployment-kit//components/hpa?ref=v1.0.0
+#
+# The ?ref=vX.Y.Z pin is the point — each project upgrades when it's ready.
+#
+# Build it:  kubectl kustomize examples/overlay-production
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mysite-production
+
+# Every resource gets this prefix, and in-graph references are rewritten to
+# match. Always include the trailing dash — kustomize concatenates literally,
+# so `mysite` would produce `mysiteapp`.
+namePrefix: mysite-
+
+resources:
+  - namespace.yaml
+  - ../../base
+  # Project-specific:
+  - ingress.yaml
+  - certificate.yaml
+  - middlewares.yaml
+
+# Opt into the pieces this project needs; drop a line to leave it out.
+components:
+  - ../../components/hpa
+  - ../../components/pdb
+
+# Teaches kustomize about Traefik's CRD name fields so namePrefix rewrites the
+# service/middleware references inside IngressRoutes. Without it the ingress
+# still points at `app` while the Service is now `mysite-app`.
+configurations:
+  - kustomizeconfig.yaml
+
+images:
+  - name: app-image
+    newName: ghcr.io/nickmous/mysite
+    # Flux image automation rewrites this tag in the fleet repo; the value
+    # here is just the bootstrap starting point.
+    newTag: v1.0.0
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: mysite
+      app.kubernetes.io/instance: production
+    includeSelectors: false

@@ -1,0 +1,40 @@
+# Reference overlay for staging. Per-branch environments are generated from
+# generator/ by the deploy-staging workflow — this file mostly documents what
+# that generator produces, and lets you render the shape locally:
+#
+#   kubectl kustomize examples/overlay-staging
+#
+# Deliberately NOT here: a Namespace resource. Every branch directory is merged
+# into one kustomization in the fleet repo, and two branches both declaring the
+# same Namespace is a duplicate-resource error. Create the staging namespace
+# once, in the fleet repo, outside the branch directories.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mysite-staging
+namePrefix: mysite-
+
+resources:
+  - ../../base
+  - ingress.yaml
+  - certificate.yaml
+  - middlewares.yaml
+  # Real projects use a SOPS-encrypted file here. Rename it in
+  # generator/kustomization.yaml.tmpl as well — that template lists resources
+  # by name, and the workflow copies whatever this directory contains.
+  - secrets.example.yaml
+
+configurations:
+  - kustomizeconfig.yaml
+
+images:
+  - name: app-image
+    newName: ghcr.io/nickmous/mysite
+    newTag: staging-latest
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: mysite
+      app.kubernetes.io/instance: staging
+    includeSelectors: false

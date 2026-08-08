@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+#
+# SSR Astro build (output: 'server' with @astrojs/node in standalone mode) →
+# plain Node runtime. Copy to the root of your project as `Dockerfile` and
+# enable the ssr component in your overlay.
+#
+# Runs as uid 1000 (`node`), which is what components/ssr sets as runAsUser.
+# HOST/PORT come from the app-config ConfigMap at runtime; the ENV defaults
+# here only matter for `docker run` outside Kubernetes.
+
+FROM node:24-trixie-slim AS build
+WORKDIR /app
+
+ARG SITE_URL=""
+ARG SENTRY_RELEASE=""
+ENV SITE_URL=${SITE_URL} \
+    SENTRY_RELEASE=${SENTRY_RELEASE}
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+# Production dependency tree only — the standalone server still requires the
+# runtime deps that Astro doesn't bundle.
+FROM node:24-trixie-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+FROM node:24-trixie-slim AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=8080
+
+COPY --from=deps  /app/node_modules ./node_modules
+COPY --from=build /app/dist         ./dist
+COPY package.json ./
+
+USER node
+EXPOSE 8080
+
+CMD ["node", "./dist/server/entry.mjs"]

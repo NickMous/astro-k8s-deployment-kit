@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-tls
+  labels:
+    app.kubernetes.io/component: certificate
+spec:
+  # cert-manager creates this Secret at runtime, so it is not part of the
+  # kustomize graph and namePrefix leaves both this value and the IngressRoute's
+  # tls.secretName untouched. They match literally — rename them together.
+  secretName: app-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - example.com
+    - www.example.com
+  usages:
+    - digital signature
+    - key encipherment

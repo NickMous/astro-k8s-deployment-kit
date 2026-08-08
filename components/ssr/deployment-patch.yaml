@@ -1,0 +1,50 @@
+# Turns the static nginx pod into a Node SSR pod:
+#   - drops the nginx-only volumes (config + cache)
+#   - runs as uid 1000 (the `node` user in the official node images)
+#   - feeds app-config / app-secret into the process
+#   - probes the TCP port instead of /health, since a plain Astro SSR build has
+#     no health route. Add `src/pages/health.ts` and patch these back to
+#     httpGet if you want a real health check.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: web
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+                optional: true
+          livenessProbe:
+            httpGet: null
+            tcpSocket:
+              port: http
+          readinessProbe:
+            httpGet: null
+            tcpSocket:
+              port: http
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - mountPath: /etc/nginx/conf.d/default.conf
+              $patch: delete
+            - mountPath: /var/cache/nginx
+              $patch: delete
+      volumes:
+        - name: nginx-config
+          $patch: delete
+        - name: nginx-cache
+          $patch: delete

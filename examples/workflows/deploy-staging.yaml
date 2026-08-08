@@ -1,0 +1,43 @@
+# Drop this into your project's .github/workflows/.
+# Bump the @ref to pick up template updates.
+
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - '**'
+      # Add `- '!main'` here if main should not get its own staging env.
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (empty = current ref)'
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      packages: write
+    uses: NickMous/astro-k8s-deployment-kit/.github/workflows/deploy-staging.yaml@v1.0.0
+    with:
+      app-name: mysite
+      fleet-repo: NickMous/fleet-infra
+      # Hosts in k8s/overlays/staging/ that get rewritten to
+      # {slug}.<host> for each branch. Comma-separated.
+      staging-domains: 'staging.example.com'
+      # Branch URLs are https://<slug>.<staging-domain-base>; defaults to the
+      # first entry of staging-domains.
+      # staging-domain-base: staging.example.com
+      branch: ${{ github.event.inputs.branch || '' }}
+      # Set to true only when this template repo is private, so the generated
+      # kustomization has to reference a synced copy of k8s/base instead of
+      # the template URL.
+      # sync-base: true
+      # Staging builds one arch for speed; add arm64 if staging nodes need it.
+      # platforms: 'linux/amd64,linux/arm64'
+      sentry-org: ''
+      sentry-project: ''
+      sentry-url: ''
+    secrets: inherit

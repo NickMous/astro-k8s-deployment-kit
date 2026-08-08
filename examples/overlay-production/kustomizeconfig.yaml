@@ -1,0 +1,23 @@
+# Traefik CRDs are unknown to kustomize's built-in name references, so without
+# this an overlay's namePrefix renames the Service but leaves the IngressRoute
+# pointing at the old name. Copy this file into every overlay that sets
+# namePrefix and uses Traefik CRDs.
+nameReference:
+  - kind: Service
+    fieldSpecs:
+      - path: spec/routes/services/name
+        kind: IngressRoute
+  - kind: Middleware
+    fieldSpecs:
+      - path: spec/routes/middlewares/name
+        kind: IngressRoute
+  - kind: Secret
+    fieldSpecs:
+      - path: spec/basicAuth/secret
+        kind: Middleware
+      - path: spec/tls/secretName
+        kind: IngressRoute
+  - kind: TLSOption
+    fieldSpecs:
+      - path: spec/tls/options/name
+        kind: IngressRoute

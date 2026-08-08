@@ -1,0 +1,18 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-staging-tls
+  labels:
+    app.kubernetes.io/component: certificate
+spec:
+  # The deploy workflow prefixes any `secretName: *-staging-tls` with the
+  # branch slug, here and in ingress.yaml, so branches don't share a cert.
+  secretName: app-staging-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - staging.example.com
+  usages:
+    - digital signature
+    - key encipherment

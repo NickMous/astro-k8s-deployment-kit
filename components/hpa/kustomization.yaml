@@ -1,0 +1,24 @@
+# Opt-in: CPU-based autoscaling for the web Deployment.
+#
+#   components:
+#     - github.com/NickMous/astro-k8s-deployment-kit//components/hpa?ref=v1.0.0
+#
+# Tune min/max in your overlay with a patch on `app-hpa`.
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - hpa.yaml
+
+# Strip spec.replicas from the Deployment: once an HPA owns the replica count,
+# leaving a literal in the manifest makes Flux and the HPA fight over it on
+# every reconcile. Don't re-add replicas in an overlay patch when using this
+# component — overlay patches run after components.
+patches:
+  - target:
+      kind: Deployment
+      name: app
+    patch: |-
+      - op: remove
+        path: /spec/replicas
