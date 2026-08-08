@@ -1,0 +1,241 @@
+name: Reusable - Deploy Astro Production
+
+# Reusable workflow. Callers invoke it via:
+#
+#   jobs:
+#     deploy:
+#       permissions:
+#         contents: read
+#         packages: write
+#       uses: NickMous/astro-k8s-deployment-kit/.github/workflows/deploy-production.yaml@v1.0.0
+#       with:
+#         version: ${{ github.event.inputs.version || github.ref_name }}
+#         prod-url: https://example.com
+#       secrets: inherit
+#
+# The caller's repo is what gets checked out; this workflow runs against the
+# caller's Dockerfile. It builds and publishes the image only — Flux image
+# automation bumps the tag in the fleet repo and rolls the cluster.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Image tag to build (e.g. v1.0.0)'
+        required: true
+        type: string
+      prod-url:
+        description: 'Primary production URL (environment link + SITE_URL build arg)'
+        required: false
+        type: string
+        default: ''
+      site-url:
+        description: 'Overrides the SITE_URL build arg when it differs from prod-url'
+        required: false
+        type: string
+        default: ''
+      dockerfile:
+        description: 'Path to the Dockerfile'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      build-context:
+        description: 'Docker build context'
+        required: false
+        type: string
+        default: '.'
+      build-args:
+        description: 'Extra build args, one KEY=value per line (e.g. PUBLIC_* vars Astro inlines at build time)'
+        required: false
+        type: string
+        default: ''
+      sentry-org:
+        description: 'Sentry org slug (leave blank to skip Sentry release)'
+        required: false
+        type: string
+        default: ''
+      sentry-project:
+        required: false
+        type: string
+        default: ''
+      sentry-url:
+        description: 'Sentry instance URL (defaults to sentry.io)'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      SENTRY_AUTH_TOKEN:
+        required: false
+      FLUX_WEBHOOK_URL:
+        required: false
+
+env:
+  REGISTRY: ghcr.io
+
+# Never build two production releases of the same repo at once, and never
+# cancel one halfway — a partially pushed multi-arch manifest is worse than a
+# queued run.
+concurrency:
+  group: deploy-production-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Prepare Docker image name
+        id: docker
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          IMAGE_NAME=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
+          echo "image_name=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}
+          tags: |
+            type=raw,value=${{ inputs.version }}-${{ matrix.arch }}
+
+      # SITE_URL matters more for Astro than for a server-rendered app: it is
+      # baked into the build (canonical tags, sitemap, RSS), so it has to be
+      # the URL this image will actually be served from.
+      - name: Build and push ${{ matrix.platform }} image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            SITE_URL=${{ inputs.site-url || inputs.prod-url }}
+            SENTRY_RELEASE=${{ inputs.version }}
+            ${{ inputs.build-args }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-prod-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-prod-${{ matrix.arch }},mode=max
+
+  deploy:
+    name: Create Manifest and Notify Flux
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ inputs.prod-url }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # `sentry-cli releases set-commits --auto` reads git history and the
+      # remote from the working directory, so it needs the full clone.
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Prepare Docker image name
+        id: docker
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          IMAGE_NAME=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
+          echo "image_name=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        env:
+          IMAGE_BASE: ${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          docker buildx imagetools create -t "${IMAGE_BASE}:${VERSION}" \
+            "${IMAGE_BASE}:${VERSION}-amd64" \
+            "${IMAGE_BASE}:${VERSION}-arm64"
+
+          docker buildx imagetools create -t "${IMAGE_BASE}:production-latest" \
+            "${IMAGE_BASE}:${VERSION}-amd64" \
+            "${IMAGE_BASE}:${VERSION}-arm64"
+
+          docker buildx imagetools inspect "${IMAGE_BASE}:${VERSION}"
+
+      - name: Create Sentry release
+        if: inputs.sentry-org != ''
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ inputs.sentry-org }}
+          SENTRY_PROJECT: ${{ inputs.sentry-project }}
+          SENTRY_URL: ${{ inputs.sentry-url }}
+          RELEASE: ${{ inputs.version }}
+        run: |
+          curl -sL https://sentry.io/get-cli/ | bash
+          sentry-cli releases new "$RELEASE"
+          sentry-cli releases set-commits "$RELEASE" --auto
+          sentry-cli releases finalize "$RELEASE"
+          sentry-cli releases deploys "$RELEASE" new -e production
+
+      - name: Trigger Flux reconciliation
+        if: vars.FLUX_WEBHOOK_ENABLED == 'true'
+        env:
+          FLUX_WEBHOOK_URL: ${{ secrets.FLUX_WEBHOOK_URL }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          curl -X POST "$FLUX_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"commit\": \"$COMMIT_SHA\"}" \
+            --fail --silent --show-error || echo "Webhook notification failed (non-fatal)"
+        continue-on-error: true
+
+      - name: Deployment summary
+        env:
+          VERSION: ${{ inputs.version }}
+          IMAGE_BASE: ${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}
+          PROD_URL: ${{ inputs.prod-url }}
+        run: |
+          {
+            echo "### Production image built"
+            echo ""
+            echo "**Version:** \`${VERSION}\`"
+            echo "**Image:** \`${IMAGE_BASE}:${VERSION}\`"
+            echo "**URL:** ${PROD_URL:-n/a}"
+            echo ""
+            echo "Flux image automation picks up the new tag and updates the cluster."
+          } >> "$GITHUB_STEP_SUMMARY"
