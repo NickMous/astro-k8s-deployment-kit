@@ -118,13 +118,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Version last, so an ImagePolicy anchored on the version prefix cannot
+      # match this scaffolding tag and deploy a single-arch image.
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}
           tags: |
-            type=raw,value=${{ inputs.version }}-${{ matrix.arch }}
+            type=raw,value=buildstage-${{ matrix.arch }}-${{ inputs.version }}
 
       # SITE_URL matters more for Astro than for a server-rendered app: it is
       # baked into the build (canonical tags, sitemap, RSS), so it has to be
@@ -188,12 +190,12 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           docker buildx imagetools create -t "${IMAGE_BASE}:${VERSION}" \
-            "${IMAGE_BASE}:${VERSION}-amd64" \
-            "${IMAGE_BASE}:${VERSION}-arm64"
+            "${IMAGE_BASE}:buildstage-amd64-${VERSION}" \
+            "${IMAGE_BASE}:buildstage-arm64-${VERSION}"
 
           docker buildx imagetools create -t "${IMAGE_BASE}:production-latest" \
-            "${IMAGE_BASE}:${VERSION}-amd64" \
-            "${IMAGE_BASE}:${VERSION}-arm64"
+            "${IMAGE_BASE}:buildstage-amd64-${VERSION}" \
+            "${IMAGE_BASE}:buildstage-arm64-${VERSION}"
 
           docker buildx imagetools inspect "${IMAGE_BASE}:${VERSION}"
 

@@ -51,6 +51,37 @@ it literally, so `namePrefix: mysite` produces `mysiteapp`.
 The image placeholder is `app-image`. Overlays point it at the project's own
 GHCR package, or Flux image automation rewrites the tag in the fleet repo.
 
+## Tags this template publishes, and what to point an ImagePolicy at
+
+A production release leaves four tags in the package:
+
+| Tag | Deploy it? |
+| --- | --- |
+| `<version>` | **yes** — the multi-arch manifest |
+| `production-latest` | moves, so Flux cannot detect a change from it |
+| `buildstage-amd64-<version>` | no — single-arch scaffolding |
+| `buildstage-arm64-<version>` | no — single-arch scaffolding |
+
+Only `<version>` is a real release. The `buildstage-` pair exists so the deploy
+job can join them into the manifest; deploying one directly gives you an image
+that will not run on the other architecture's nodes.
+
+**Anchor your `filterTags` pattern.** With `^`, the `buildstage-` prefix cannot
+match, which is the point of naming them that way:
+
+```yaml
+filterTags:
+  pattern: '^prod-(?P<stamp>\d{8}-\d{4})-.*$'   # ^ is load-bearing
+  extract: '$stamp'
+policy:
+  alphabetical:
+    order: asc
+```
+
+Flux uses Go RE2, which has no lookahead, so excluding a suffix like
+`-(amd64|arm64)$` from the pattern is not an option — the prefix is what keeps
+these apart.
+
 ## First deploy: the GHCR package
 
 Both deploy workflows push to `ghcr.io/<owner>/<repo>` using `GITHUB_TOKEN`, and
