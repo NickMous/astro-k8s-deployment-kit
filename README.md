@@ -51,6 +51,39 @@ it literally, so `namePrefix: mysite` produces `mysiteapp`.
 The image placeholder is `app-image`. Overlays point it at the project's own
 GHCR package, or Flux image automation rewrites the tag in the fleet repo.
 
+## First deploy: the GHCR package
+
+Both deploy workflows push to `ghcr.io/<owner>/<repo>` using `GITHUB_TOKEN`, and
+a GHCR package carries its own access control, separate from the repository.
+
+When the workflow pushes a package that does not exist yet, GHCR creates it,
+links it to the repository and grants that repository write. Nothing to
+configure — this is the normal path.
+
+If the package **already exists** because someone pushed it by hand with a PAT,
+there is no such link, and `GITHUB_TOKEN` has no standing on it. The push fails
+with:
+
+```
+failed to push ghcr.io/<owner>/<repo>:<tag>: unexpected status from HEAD request
+to https://ghcr.io/v2/<owner>/<repo>/blobs/sha256:…: 403 Forbidden
+```
+
+Two details make this hard to recognise:
+
+- **The repository's Packages tab does not list it.** That tab shows linked
+  packages only, and the missing link is the problem — so the package looks
+  like it does not exist. Look under the account instead:
+  `github.com/<owner>?tab=packages`.
+- **Granting `packages: write`, in the caller or in repository settings, does
+  not help.** The token has the permission; the package is refusing it. This is
+  package-side ACL, not token-side.
+
+Fix it at
+`github.com/users/<owner>/packages/container/<repo>/settings` → **Manage Actions
+access** → add the repository with role **Write**. Or delete the package and let
+the next run recreate it, which restores the normal auto-linked state.
+
 ## Shared nginx image
 
 `docker/nginx/Dockerfile` is the unprivileged nginx image plus the `ngx_brotli`

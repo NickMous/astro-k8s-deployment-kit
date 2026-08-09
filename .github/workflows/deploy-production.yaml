@@ -143,7 +143,7 @@ jobs:
             SENTRY_RELEASE=${{ inputs.version }}
             ${{ inputs.build-args }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-prod-${{ matrix.arch }}
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-prod-${{ matrix.arch }},mode=max
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-prod-${{ matrix.arch }},mode=max,ignore-error=true
 
   deploy:
     name: Create Manifest and Notify Flux

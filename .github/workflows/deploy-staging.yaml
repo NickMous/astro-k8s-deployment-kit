@@ -196,7 +196,7 @@ jobs:
             SENTRY_RELEASE=sha-${{ github.sha }}
             ${{ inputs.build-args }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache,mode=max
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache,mode=max,ignore-error=true
 
       - name: Create Sentry release
         if: inputs.sentry-org != ''
