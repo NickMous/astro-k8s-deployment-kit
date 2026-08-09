@@ -19,6 +19,7 @@ base/                       # kustomize: always included
 
 components/                 # kustomize: opt-in per project
   ssr/                      # swap the nginx pod for a Node (@astrojs/node) pod
+  preview/                  # add a Node pod *next to* the nginx one (CMS live preview)
   hpa/                      # CPU HorizontalPodAutoscaler (+ removes spec.replicas)
   pdb/                      # PodDisruptionBudget
 
@@ -35,6 +36,7 @@ examples/
   overlay-production/       # consume the template for production
   overlay-staging/          # consume for staging, with per-branch generator/
   overlay-ssr/              # the SSR variant
+  overlay-preview/          # static site + a Node preview pod beside it
   docker/                   # project Dockerfiles (static + SSR) and .dockerignore
   workflows/                # caller stubs — copy into your project's .github/workflows/
 ```
@@ -61,6 +63,11 @@ A production release leaves four tags in the package:
 | `production-latest` | moves, so Flux cannot detect a change from it |
 | `buildstage-amd64-<version>` | no — single-arch scaffolding |
 | `buildstage-arm64-<version>` | no — single-arch scaffolding |
+
+A project that builds a second image from the same repo (see *Live preview next
+to a static site*) passes its own `latest-tag`, which also keys the build cache.
+Give that image a distinct `version` prefix too, and a second ImagePolicy: the
+two patterns must not be able to match each other's tags.
 
 Only `<version>` is a real release. The `buildstage-` pair exists so the deploy
 job can join them into the manifest; deploying one directly gives you an image
@@ -241,6 +248,44 @@ also means the name hash rolls the pods when config changes. See
 Build the SSR image from `examples/docker/Dockerfile.ssr`, which runs as the
 `node` user (uid 1000) to match.
 
+## Live preview next to a static site
+
+A CMS live preview needs a server: a draft has no prerendered page, so the
+route rendering it must be on-demand. Moving the whole project to `ssr` for
+that would cost the static delivery path — brotli/gzip of the precompressed
+files, the Cache-Control map, the nginx security headers — for the sake of one
+editor-facing route.
+
+The `preview` component adds a second pod instead:
+
+```yaml
+components:
+  - github.com/NickMous/astro-k8s-deployment-kit//components/preview?ref=v1.2.0
+```
+
+`app` keeps serving the static build through nginx. `preview` runs the same
+project as Node from a second image, and only the CMS iframe ever reaches it.
+In Astro terms the project keeps `output: 'static'` and adds an adapter, so a
+build emits `dist/client` (everything prerendered, what nginx serves) plus
+`dist/server` (the handful of routes carrying `export const prerender = false`).
+
+The overlay supplies an `app-preview-config` ConfigMap (`HOST=0.0.0.0`,
+`PORT=8080`), an `images:` entry for the `preview-image` placeholder, and an
+ingress route to the `preview` Service — see `examples/overlay-preview/`.
+Nothing about `app` changes except the project's own Dockerfile, which now
+copies `dist/client` rather than `dist`.
+
+Two consequences worth planning for:
+
+- **Nothing sits in front of the preview pod.** Response headers the shared
+  nginx config would have added have to come from an ingress middleware — as
+  does whatever the CMS needs in order to frame the page (`frame-ancestors`),
+  and a `X-Robots-Tag: noindex` if the preview is reachable on a public host.
+- **Two images, two tags.** Give the preview image its own tag prefix and its
+  own ImagePolicy; the reusable deploy workflow takes `latest-tag` and
+  `environment` so a second call cannot clobber `:production-latest` or queue
+  behind the first build.
+
 ## SITE_URL
 
 Astro bakes the site URL into its output — canonical links, sitemap, RSS. That
@@ -335,6 +380,8 @@ new tag.
 | `site-url` | no | Overrides the `SITE_URL` build arg when it differs from `prod-url` |
 | `dockerfile`, `build-context` | no | Default `Dockerfile` / `.` |
 | `build-args` | no | Extra build args, one `KEY=value` per line |
+| `latest-tag` | no | Rolling tag and build-cache key. Default `production-latest`; a second image from the same repo needs its own |
+| `environment` | no | GitHub environment for the deploy job. Default `production` |
 | `sentry-org`, `sentry-project`, `sentry-url` | no | Blank skips Sentry |
 
 ### `deploy-staging.yaml`
@@ -379,6 +426,7 @@ Outputs `url` — the branch's staging URL.
 kubectl kustomize examples/overlay-production
 kubectl kustomize examples/overlay-staging
 kubectl kustomize examples/overlay-ssr
+kubectl kustomize examples/overlay-preview
 
 # Build and smoke-test the shared nginx image the way the cluster runs it:
 # non-root, read-only rootfs, config from the ConfigMap.

@@ -63,6 +63,16 @@ on:
         required: false
         type: string
         default: ''
+      latest-tag:
+        description: 'Rolling tag republished on every build. Give a second image built from the same repo its own, or it overwrites the first one''s.'
+        required: false
+        type: string
+        default: 'production-latest'
+      environment:
+        description: 'GitHub environment the deploy job runs in'
+        required: false
+        type: string
+        default: 'production'
     secrets:
       SENTRY_AUTH_TOKEN:
         required: false
@@ -75,8 +85,13 @@ env:
 # Never build two production releases of the same repo at once, and never
 # cancel one halfway — a partially pushed multi-arch manifest is worse than a
 # queued run.
+#
+# Keyed on latest-tag as well as the repo, so a project that builds a second
+# image (a preview pod alongside the static one) gets a lane per image instead
+# of one build queueing behind the other. Two calls sharing a latest-tag would
+# race to republish it, which is exactly what the group is for.
 concurrency:
-  group: deploy-production-${{ github.repository }}
+  group: deploy-production-${{ github.repository }}-${{ inputs.latest-tag }}
   cancel-in-progress: false
 
 jobs:
@@ -144,15 +159,18 @@ jobs:
             SITE_URL=${{ inputs.site-url || inputs.prod-url }}
             SENTRY_RELEASE=${{ inputs.version }}
             ${{ inputs.build-args }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-prod-${{ matrix.arch }}
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-prod-${{ matrix.arch }},mode=max,ignore-error=true
+          # Keyed on latest-tag so two images from the same repo do not race to
+          # overwrite one another's cache manifest. Bumping to a kit version
+          # that renamed this costs one cold build per arch, then repopulates.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-${{ inputs.latest-tag }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}:buildcache-${{ inputs.latest-tag }}-${{ matrix.arch }},mode=max,ignore-error=true
 
   deploy:
     name: Create Manifest and Notify Flux
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: production
+      name: ${{ inputs.environment }}
       url: ${{ inputs.prod-url }}
     permissions:
       contents: read
@@ -188,12 +206,13 @@ jobs:
         env:
           IMAGE_BASE: ${{ env.REGISTRY }}/${{ steps.docker.outputs.image_name }}
           VERSION: ${{ inputs.version }}
+          LATEST_TAG: ${{ inputs.latest-tag }}
         run: |
           docker buildx imagetools create -t "${IMAGE_BASE}:${VERSION}" \
             "${IMAGE_BASE}:buildstage-amd64-${VERSION}" \
             "${IMAGE_BASE}:buildstage-arm64-${VERSION}"
 
-          docker buildx imagetools create -t "${IMAGE_BASE}:production-latest" \
+          docker buildx imagetools create -t "${IMAGE_BASE}:${LATEST_TAG}" \
             "${IMAGE_BASE}:buildstage-amd64-${VERSION}" \
             "${IMAGE_BASE}:buildstage-arm64-${VERSION}"
 

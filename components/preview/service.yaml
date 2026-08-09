@@ -1,0 +1,20 @@
+# Same shape as base/service.yaml, pointing at the preview pods instead. Port
+# 80 -> the pod's `http` port, so an IngressRoute for the preview host looks
+# exactly like the one for the static site.
+apiVersion: v1
+kind: Service
+metadata:
+  name: preview
+  labels:
+    app.kubernetes.io/name: preview
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: preview
+    app.kubernetes.io/component: web

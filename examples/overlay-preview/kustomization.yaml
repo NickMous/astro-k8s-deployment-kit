@@ -1,0 +1,61 @@
+# Example: a static nginx site with a Node preview pod next to it, for CMS
+# live preview. Unlike overlay-ssr, `app` is untouched — this adds a second
+# workload rather than converting the first.
+#
+# Ingress, certificate, middlewares and kustomizeconfig are the same as
+# overlay-production; copy them in when you use this as a starting point, and
+# add a route for the preview host pointing at the `preview` Service.
+#
+#   kubectl kustomize examples/overlay-preview
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mysite-production
+namePrefix: mysite-
+
+resources:
+  - ../../base
+
+components:
+  # Adds the `preview` Deployment + Service. Nothing else in the overlay has to
+  # change shape: the preview pod listens on the same port and answers on the
+  # same kind of Service.
+  - ../../components/preview
+  - ../../components/pdb
+
+# Required by the preview component — it wires this in with envFrom and the pod
+# will not start without it. Named app-preview-config rather than app-config so
+# it cannot collide with a project that also runs the ssr component.
+configMapGenerator:
+  - name: app-preview-config
+    literals:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - NODE_ENV=production
+      - TZ=Europe/Amsterdam
+    options:
+      labels:
+        app.kubernetes.io/name: preview
+        app.kubernetes.io/component: web
+
+# Two tags of the same package: one built from the project's static Dockerfile,
+# one from examples/docker/Dockerfile.ssr. Distinct tag prefixes, so an
+# ImagePolicy for one can never select the other.
+images:
+  - name: app-image
+    newName: ghcr.io/nickmous/mysite
+    newTag: prod-20260101-1200-v1.0.0
+  - name: preview-image
+    newName: ghcr.io/nickmous/mysite
+    newTag: preview-20260101-1200-v1.0.0
+
+replicas:
+  - name: app
+    count: 2
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: mysite
+      app.kubernetes.io/instance: production
+    includeSelectors: false
