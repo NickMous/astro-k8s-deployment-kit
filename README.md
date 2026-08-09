@@ -205,8 +205,16 @@ images:
 
 ### 5. A pull secret, if the package is private
 
-The base references `ghcr-login-secret` — the name fleet-infra's
-general-secrets creates in every app namespace. Patch it if yours differs.
+The base references `ghcr-login-secret`, the name fleet-infra's general-secrets
+uses. Patch it in your overlay if yours differs.
+
+That secret is **not** replicated automatically — general-secrets is a
+hand-maintained list of namespaces, one Secret document each, per cluster. A new
+app namespace has to be added to it, and if you forget, the failure names
+nothing useful: Kubernetes silently skips an `imagePullSecrets` entry it cannot
+resolve, falls back to an anonymous pull, and a private package answers `401
+Unauthorized` — which reads like wrong credentials rather than absent ones. The
+tell is the word "anonymous" in the kubelet message.
 
 ## Static vs SSR
 
