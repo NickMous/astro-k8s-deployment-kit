@@ -1,0 +1,31 @@
+# Opt-in: run a Node (@astrojs/node) pod *next to* the static nginx one, so a
+# CMS can live-preview drafts through the real templates while the public site
+# stays a static build served by nginx.
+#
+#   components:
+#     - github.com/NickMous/astro-k8s-deployment-kit//components/preview?ref=v1.2.0
+#
+# This is not components/ssr. That one patches the `app` Deployment in place —
+# the whole site moves to Node and the nginx pod is gone. This one adds a
+# second Deployment and Service (`preview`), leaves `app` untouched, and
+# expects a second image built from examples/docker/Dockerfile.ssr.
+#
+# The overlay has to supply:
+#
+#   - an `app-preview-config` ConfigMap with at least HOST=0.0.0.0 and
+#     PORT=8080 (see deployment.yaml for why it is not generated here)
+#   - an `images:` entry for the `preview-image` placeholder
+#   - an ingress route for the preview host or path, pointing at the `preview`
+#     Service
+#
+# The preview pod has no nginx in front of it, so any response header the
+# shared nginx config would have added (X-Content-Type-Options,
+# Referrer-Policy, Cache-Control) has to come from an ingress middleware
+# instead.
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - deployment.yaml
+  - service.yaml
