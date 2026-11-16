@@ -1,0 +1,8 @@
+{
+  "kind": "Deployment kit",
+  "color": "yellow",
+  "oneLiner": {
+    "en": "Shared deploy setup for Astro sites. Fix it once, and every site picks it up on its next update.",
+    "nl": "Gedeelde deploy-setup voor Astro-sites. Eén keer fixen, en elke site neemt het mee bij de volgende update."
+  }
+}
